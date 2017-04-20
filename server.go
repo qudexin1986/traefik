@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"time"
 
+	"fmt"
+
 	"github.com/codegangsta/negroni"
 	"github.com/containous/mux"
 	"github.com/containous/traefik/cluster"
@@ -82,6 +84,7 @@ func NewServer(globalConfiguration GlobalConfiguration) *Server {
 	currentConfigurations := make(configs)
 	server.currentConfigurations.Set(currentConfigurations)
 	server.globalConfiguration = globalConfiguration
+	fmt.Println(globalConfiguration.File.Filename)
 	server.loggerMiddleware = middlewares.NewLogger(globalConfiguration.AccessLogsFile)
 	server.routinesPool = safe.NewPool(context.Background())
 	if globalConfiguration.Cluster != nil {
@@ -289,6 +292,7 @@ func (server *Server) listenConfigurations(stop chan bool) {
 			// Copy configurations to new map so we don't change current if LoadConfig fails
 			newConfigurations := make(configs)
 			for k, v := range currentConfigurations {
+				fmt.Println(k)
 				newConfigurations[k] = v
 			}
 			newConfigurations[configMsg.ProviderName] = configMsg.Configuration
