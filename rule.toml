@@ -15,14 +15,6 @@
     [Backends.backend2.LoadBalancer]
       Method = "wrr"
       Sticky = false
-  [Backends.backend4]
-    [Backends.backend4.Servers]
-      [Backends.backend4.Servers.server1]
-        URL = "http://60.205.130.2:8084"
-        Weight = 0
-    [Backends.backend4.LoadBalancer]
-      Method = "wrr"
-      Sticky = false
 
 [Frontends]
   [Frontends.frontend1]
@@ -31,6 +23,11 @@
     PassHostHeader = false
     Priority = 0
   [Frontends.frontend2]
+    EntryPoints = ["b"]
+    Backend = "backend2"
+    PassHostHeader = false
+    Priority = 0
+  [Frontends.frontend3]
     EntryPoints = ["b"]
     Backend = "backend2"
     PassHostHeader = false

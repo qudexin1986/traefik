@@ -90,7 +90,7 @@ func (provider *WebProvider) Provide(configurationChan chan<- types.ConfigMessag
 	systemRouter.Methods("GET").Path(provider.Path + "api").HandlerFunc(provider.getConfigHandler)
 	systemRouter.Methods("GET").Path(provider.Path + "api/version").HandlerFunc(provider.getVersionHandler)
 	systemRouter.Methods("GET").Path(provider.Path + "api/providers").HandlerFunc(provider.getConfigHandler)
-	systemRouter.Methods("GET").Path(provider.Path + "api/providers/update").HandlerFunc(provider.updateConfigHandler)
+
 	systemRouter.Methods("GET").Path(provider.Path + "api/providers/{provider}").HandlerFunc(provider.getProviderHandler)
 	systemRouter.Methods("PUT").Path(provider.Path + "api/providers/{provider}").HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if provider.ReadOnly {
@@ -124,14 +124,19 @@ func (provider *WebProvider) Provide(configurationChan chan<- types.ConfigMessag
 	systemRouter.Methods("GET").Path(provider.Path + "api/providers/{provider}/frontends/{frontend}").HandlerFunc(provider.getFrontendHandler)
 	systemRouter.Methods("GET").Path(provider.Path + "api/providers/{provider}/frontends/{frontend}/routes").HandlerFunc(provider.getRoutesHandler)
 	systemRouter.Methods("GET").Path(provider.Path + "api/providers/{provider}/frontends/{frontend}/routes/{route}").HandlerFunc(provider.getRouteHandler)
-	systemRouter.Methods("PUT").Path(provider.Path + "api/backends/{bankend}").HandlerFunc(provider.addBackEndHandler)
-
+	//添加backend
+	systemRouter.Methods("PUT").Path(provider.Path + "api/backends/{backend}").HandlerFunc(provider.addBackEndHandler)
+	//删除backend
+	systemRouter.Methods("DELETE").Path(provider.Path + "api/backends/{backend}").HandlerFunc(provider.removeBackEndHandler)
+	//添加frontend
+	systemRouter.Methods("PUT").Path(provider.Path + "api/frontends/{frontend}").HandlerFunc(provider.addFrontEndHandler)
+	//删除frontend
+	systemRouter.Methods("DELETE").Path(provider.Path + "api/frontends/{frontend}").HandlerFunc(provider.removeFrontEndHandler)
 	// Expose dashboard
 	systemRouter.Methods("GET").Path(provider.Path).HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		http.Redirect(response, request, provider.Path+"dashboard/", 302)
 	})
 
-	systemRouter.Methods("GET").Path(provider.Path + "api/config").HandlerFunc(provider.getConfig)
 	systemRouter.Methods("GET").PathPrefix(provider.Path + "dashboard/").Handler(http.StripPrefix(provider.Path+"dashboard/", http.FileServer(&assetfs.AssetFS{Asset: autogen.Asset, AssetInfo: autogen.AssetInfo, AssetDir: autogen.AssetDir, Prefix: "static"})))
 
 	// expvars
@@ -305,15 +310,6 @@ func (provider *WebProvider) getRoutesHandler(response http.ResponseWriter, requ
 	http.NotFound(response, request)
 }
 
-func (provider *WebProvider) getConfig(response http.ResponseWriter, request *http.Request) {
-
-	fmt.Println(autogen.Asset)
-	fmt.Println(autogen.AssetInfo)
-	fmt.Println(autogen.AssetDir)
-
-	response.Write([]byte("121"))
-}
-
 func (provider *WebProvider) getRouteHandler(response http.ResponseWriter, request *http.Request) {
 
 	vars := mux.Vars(request)
@@ -346,22 +342,6 @@ func expvarHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "\n}\n")
 }
 
-func (s *WebProvider) updateConfigHandler(response http.ResponseWriter, request *http.Request) {
-	currentConfigurations := s.server.currentConfigurations.Get().(configs)
-	// fmt.Println()
-	_, ok := currentConfigurations["file"].Backends["backend2"]
-	if !ok {
-		currentConfigurations["file"].Backends["backend2"] = currentConfigurations["file"].Backends["backend1"]
-	}
-
-	v, _ := os.OpenFile(s.server.globalConfiguration.File.Filename, os.O_CREATE|os.O_WRONLY, os.ModeAppend)
-
-	t := toml.NewEncoder(v)
-	e := t.Encode(currentConfigurations["file"])
-	fmt.Println(e)
-	templatesRenderer.JSON(response, http.StatusOK, currentConfigurations)
-}
-
 func (s *WebProvider) addBackEndHandler(response http.ResponseWriter, request *http.Request) {
 	currentConfigurations := s.server.currentConfigurations.Get().(configs)
 	body, _ := ioutil.ReadAll(request.Body)
@@ -392,8 +372,50 @@ func (s *WebProvider) removeBackEndHandler(response http.ResponseWriter, request
 	vars := mux.Vars(request)
 
 	backendID := vars["backend"]
-	if _, ok := currentConfigurations["file"].Backends[backendID]; !ok {
+
+	_, ok := currentConfigurations["file"].Backends[backendID]
+	if ok {
 		delete(currentConfigurations["file"].Backends, backendID)
+	}
+
+	ruleFileSource, _ := os.OpenFile(s.server.globalConfiguration.File.Filename, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0777)
+	defer ruleFileSource.Close()
+	t := toml.NewEncoder(ruleFileSource)
+	e := t.Encode(currentConfigurations["file"])
+	fmt.Println(e)
+	templatesRenderer.JSON(response, http.StatusOK, currentConfigurations)
+}
+
+func (s *WebProvider) addFrontEndHandler(response http.ResponseWriter, request *http.Request) {
+	currentConfigurations := s.server.currentConfigurations.Get().(configs)
+	body, _ := ioutil.ReadAll(request.Body)
+	vars := mux.Vars(request)
+	frontendID := vars["frontend"]
+	frontend := new(types.Frontend)
+	err := json.Unmarshal(body, frontend)
+	if err != nil {
+		templatesRenderer.JSON(response, http.StatusBadRequest, err)
+	}
+	if _, ok := currentConfigurations["file"].Frontends[frontendID]; !ok {
+		currentConfigurations["file"].Frontends[frontendID] = frontend
+	}
+	ruleFileSource, _ := os.OpenFile(s.server.globalConfiguration.File.Filename, os.O_CREATE|os.O_WRONLY, os.ModeAppend)
+	ruleFileSource.Write([]byte(""))
+	defer ruleFileSource.Close()
+	t := toml.NewEncoder(ruleFileSource)
+	e := t.Encode(currentConfigurations["file"])
+	fmt.Println(e)
+	templatesRenderer.JSON(response, http.StatusOK, currentConfigurations)
+}
+func (s *WebProvider) removeFrontEndHandler(response http.ResponseWriter, request *http.Request) {
+	currentConfigurations := s.server.currentConfigurations.Get().(configs)
+
+	vars := mux.Vars(request)
+	frontendID := vars["frontend"]
+
+	_, ok := currentConfigurations["file"].Frontends[frontendID]
+	if ok {
+		delete(currentConfigurations["file"].Frontends, frontendID)
 	}
 
 	ruleFileSource, _ := os.OpenFile(s.server.globalConfiguration.File.Filename, os.O_CREATE|os.O_WRONLY, os.ModeAppend)
